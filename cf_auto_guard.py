@@ -118,3 +118,51 @@ DEFAULTS: dict[str, Any] = {
         "ssrf": r"169\.254\.169\.254|metadata\.google\.internal|file:///|gopher://|dict://",
     },
 }
+
+HARD_REASONS_PREFIX = ("sig:", "scanner_ua")
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+_CTRL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def safe(text: Any, limit: int = 160) -> str:
+    """Neutralise control characters in attacker-controlled strings (log injection)."""
+    return _CTRL.sub("?", str(text))[:limit]
+
+
+def utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+
+
+def iso(ts: dt.datetime) -> str:
+    return ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def deep_merge(base: dict, override: dict | None) -> dict:
+    out = dict(base)
+    for key, val in (override or {}).items():
+        if isinstance(val, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], val)
+        else:
+            out[key] = val
+    return out
+
+def normalise_payload(path: str | None, query: str | None = None) -> str:
+    """Recursively URL-decode (defeats double encoding) and lowercase."""
+    s = path or ""
+    if query:
+        s += query if query.startswith("?") else "?" + query
+    for _ in range(3):
+        decoded = unquote_plus(s)
+        if decoded == s:
+            break
+        s = decoded
+    return s.lower()
+
+def subject_for(ip: str, v6_prefix: int = 64) -> Net:
+    """Blocking subject: IPv4 /32, IPv6 aggregated to a /64 (attackers rotate within it)."""
+    addr = ipaddress.ip_address(ip.strip())
+    if addr.version == 4:
+        return ipaddress.ip_network(f"{addr}/32")
+    return ipaddress.ip_network(f"{addr}/{v6_prefix}", strict=False)
