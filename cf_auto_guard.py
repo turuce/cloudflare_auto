@@ -166,3 +166,4 @@ def subject_for(ip: str, v6_prefix: int = 64) -> Net:
     if addr.version == 4:
         return ipaddress.ip_network(f"{addr}/32")
     return ipaddress.ip_network(f"{addr}/{v6_prefix}", strict=False)
+
