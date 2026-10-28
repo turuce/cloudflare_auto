@@ -167,3 +167,14 @@ def subject_for(ip: str, v6_prefix: int = 64) -> Net:
         return ipaddress.ip_network(f"{addr}/32")
     return ipaddress.ip_network(f"{addr}/{v6_prefix}", strict=False)
 
+def subject_str(net: Net) -> str:
+    if net.version == 4 and net.prefixlen == 32:
+        return str(net.network_address)
+    return str(net)
+
+def compile_any(patterns: Iterable[str]) -> re.Pattern | None:
+    patterns = [p for p in patterns if p]
+    return re.compile("|".join(f"(?:{p})" for p in patterns), re.I) if patterns else None
+
+def make_comment(expires: dt.datetime, score: int, reasons: Iterable[str]) -> str:
+    return f"{TAG}|exp={expires.strftime(COMMENT_TIME_FMT)}|s={score}|r={','.join(reasons)}"[:200]
