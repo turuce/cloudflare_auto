@@ -178,3 +178,32 @@ def compile_any(patterns: Iterable[str]) -> re.Pattern | None:
 
 def make_comment(expires: dt.datetime, score: int, reasons: Iterable[str]) -> str:
     return f"{TAG}|exp={expires.strftime(COMMENT_TIME_FMT)}|s={score}|r={','.join(reasons)}"[:200]
+
+def parse_comment(comment: str | None) -> dict | None:
+    """Return parsed metadata for cf-guard managed items, None for anything else."""
+    if not comment or not comment.startswith(TAG + "|"):
+        return None
+    fields = dict(p.split("=", 1) for p in comment.split("|")[1:] if "=" in p)
+    try:
+        exp = dt.datetime.strptime(fields["exp"], COMMENT_TIME_FMT).replace(tzinfo=dt.timezone.utc)
+    except (KeyError, ValueError):
+        exp = None  # malformed: treated as managed but never auto-expired
+    return {"expires": exp, "score": fields.get("s"), "reasons": fields.get("r", "")}
+
+# --------------------------------------------------------------------------- #
+# Cloudflare API client
+# --------------------------------------------------------------------------- #
+
+class CFError(RuntimeError):
+    pass
+
+class Cloudflare:
+    def __init__(self, token: str, timeout: int = 30):
+        self.timeout = timeout
+        self.session = requests.Session()
+        self.session.headers.update({
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": f"cf-guard/{__version__}",
+        })
+
