@@ -15,7 +15,7 @@ import time
 from typing import Any, Callable, Iterable
 from urllib.parse import unquote_plus
 
-import yaml
+# import yaml
 
 __version__ = "0.1.0"
 
