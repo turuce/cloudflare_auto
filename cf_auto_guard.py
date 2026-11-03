@@ -207,3 +207,37 @@ class Cloudflare:
             "User-Agent": f"cf-guard/{__version__}",
         })
 
+def _request(self, method: str, path: str, **kwargs) -> dict:
+        url = f"{API_BASE}{path}"
+        resp = None
+        for attempt in range(5):
+            try:
+                resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
+            except requests.RequestException as exc:
+                if attempt == 4:
+                    raise CFError(f"{method} {path}: {exc.__class__.__name__}") from None
+                time.sleep(2 ** attempt)
+                continue
+            if resp.status_code == 429 or resp.status_code >= 500:
+                wait = resp.headers.get("Retry-After")
+                time.sleep(min(int(wait) if wait and wait.isdigit() else 2 ** attempt, 60))
+                continue
+            break
+        assert resp is not None
+        try:
+            body = resp.json()
+        except ValueError:
+            raise CFError(f"{method} {path}: HTTP {resp.status_code}, non-JSON response") from None
+        if not resp.ok or body.get("success") is False:
+            raise CFError(f"{method} {path}: HTTP {resp.status_code}: {body.get('errors')}")
+        return body
+
+# ---- analytics ---------------------------------------------------------
+def graphql(self, query: str, variables: dict) -> dict:
+        body = self._request("POST", "/graphql", json={"query": query, "variables": variables})
+        if body.get("errors"):
+            raise CFError(f"GraphQL: {[e.get('message') for e in body['errors']]}")
+        return body["data"]
+# ---- lists ---------------------------------------------------------------
+def get_list(self, account: str, list_id: str) -> dict:
+        return self._request("GET", f"/accounts/{account}/rules/lists/{list_id}")["result"]
