@@ -207,7 +207,7 @@ class Cloudflare:
             "User-Agent": f"cf-guard/{__version__}",
         })
 
-def _request(self, method: str, path: str, **kwargs) -> dict:
+    def _request(self, method: str, path: str, **kwargs) -> dict:
         url = f"{API_BASE}{path}"
         resp = None
         for attempt in range(5):
@@ -233,11 +233,43 @@ def _request(self, method: str, path: str, **kwargs) -> dict:
         return body
 
 # ---- analytics ---------------------------------------------------------
-def graphql(self, query: str, variables: dict) -> dict:
+    def graphql(self, query: str, variables: dict) -> dict:
         body = self._request("POST", "/graphql", json={"query": query, "variables": variables})
         if body.get("errors"):
             raise CFError(f"GraphQL: {[e.get('message') for e in body['errors']]}")
         return body["data"]
 # ---- lists ---------------------------------------------------------------
-def get_list(self, account: str, list_id: str) -> dict:
+    def get_list(self, account: str, list_id: str) -> dict:
         return self._request("GET", f"/accounts/{account}/rules/lists/{list_id}")["result"]
+
+    def list_items(self, account: str, list_id: str) -> list[dict]:
+        items, cursor = [], None
+        while True:
+            params: dict[str, Any] = {"per_page": 500}
+            if cursor:
+                params["cursor"] = cursor
+            body = self._request("GET", f"/accounts/{account}/rules/lists/{list_id}/items", params=params)
+            items.extend(body.get("result") or [])
+            cursor = ((body.get("result_info") or {}).get("cursors") or {}).get("after")
+            if not cursor:
+                return items
+
+    def add_items(self, account: str, list_id: str, items: list[dict]) -> None:
+        body = self._request("POST", f"/accounts/{account}/rules/lists/{list_id}/items", json=items)
+        self._wait(account, body["result"]["operation_id"])
+
+    def delete_items(self, account: str, list_id: str, item_ids: list[str]) -> None:
+        payload = {"items": [{"id": i} for i in item_ids]}
+        body = self._request("DELETE", f"/accounts/{account}/rules/lists/{list_id}/items", json=payload)
+        self._wait(account, body["result"]["operation_id"])
+
+    def _wait(self, account: str, op_id: str, timeout: int = 180) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            res = self._request("GET", f"/accounts/{account}/rules/lists/bulk_operations/{op_id}")["result"]
+            if res["status"] == "completed":
+                return
+            if res["status"] == "failed":
+                raise CFError(f"List bulk operation failed: {res.get('error')}")
+            time.sleep(2)
+        raise CFError(f"List bulk operation {op_id} did not finish within {timeout}s")
